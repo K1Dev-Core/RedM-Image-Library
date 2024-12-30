@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RedM GitHub Image Gallery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip-utils/0.1.0/jszip-utils.min.js"></script>
+
+</head>
+
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">RedM GitHub Image Gallery</h1>
+            <p class="text-gray-600">Browse and download images from the repository</p>
+        </div>
+
+        <!-- Search and Controls -->
+        <div class="mb-6 space-y-4">
+            <!-- Search Bar -->
+            <div class="relative">
+                <input type="text" id="searchInput" placeholder="Search images by name..."
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors pl-10">
+                <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+            </div>
+
+            <!-- Sort Controls -->
+            <div class="flex gap-4 items-center">
+                <label class="text-gray-700">Sort by:</label>
+                <select id="sortSelect" class="rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="name">Name</option>
+                </select>
+            </div>
+
+            <!-- Categories -->
+            <div id="categories" class="flex flex-wrap gap-2"></div>
+
+            <!-- Bulk Actions -->
+            <div class="flex flex-wrap gap-4 items-center bg-white p-4 rounded-lg shadow">
+                <button id="selectAll"
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-colors">
+                    <i class="fas fa-check-square mr-2"></i>Select All
+                </button>
+                <button id="deselectAll"
+                    class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition-colors">
+                    <i class="fas fa-square mr-2"></i>Deselect All
+                </button>
+                <button id="downloadSelected"
+                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors hidden">
+                    <i class="fas fa-download mr-2"></i>Download Selected (<span id="selectedCount">0</span>)
+                </button>
+            </div>
+
+            <!-- Results Counter -->
+            <div id="resultsCounter" class="text-gray-600 text-sm">
+                Showing all images
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay"
+            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+            <div class="bg-white p-8 rounded-lg text-center">
+                <i class="fas fa-spinner fa-spin text-4xl text-blue-500 mb-4"></i>
+                <p class="text-gray-800">Loading images...</p>
+            </div>
+        </div>
+
+        <!-- Image Grid -->
+        <div id="imageGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        </div>
+
+        <!-- Credits -->
+        <footer class="mt-12 text-center py-6 border-t border-gray-200">
+            <div class="max-w-2xl mx-auto">
+              
+                <p class="text-gray-600 mb-2">
+                    Web Developer: 
+                    <a href="https://github.com/K1Dev-Core" class="text-blue-500 hover:text-blue-600 font-medium">
+                        Hex-K1Dev
+                    </a>
+                </p>
+                <p class="text-gray-600">
+                    Graphic Designer: 
+                    <a href="https://github.com/TankieTwitch" class="text-blue-500 hover:text-blue-600 font-medium">
+                        Tankie Twitch
+                    </a>
+                </p>
+            </div>
+        </footer>
+        
+    </div>
+
+    <script>
+        const GITHUB_API_URL = 'https://api.github.com/repos/TankieTwitch/FREE-RedM-Image-Library/git/trees/9d8a8f41a4e28370c99b5e385c3f16400515fc6c?recursive=1';
+        const RAW_CONTENT_URL = 'https://raw.githubusercontent.com/TankieTwitch/FREE-RedM-Image-Library/9d8a8f41a4e28370c99b5e385c3f16400515fc6c/';
+        const COMMITS_API_URL = 'https://api.github.com/repos/TankieTwitch/FREE-RedM-Image-Library/commits';
+
+        // Changed from 24 hours to 14 days (2 weeks)
+        const NEW_TAG_DURATION = 14 * 24 * 60 * 60 * 1000;
+
+        let allImages = [];
+        let selectedImages = new Set();
+        let currentCategory = 'all';
+        let searchTerm = '';
+        let isLoading = false;
+        let currentSort = 'newest';
+        const categories = new Set();
+
+        // Event Listeners
+        document.getElementById('selectAll').addEventListener('click', selectAllImages);
+        document.getElementById('deselectAll').addEventListener('click', deselectAllImages);
+        document.getElementById('downloadSelected').addEventListener('click', downloadSelectedImages);
+        document.getElementById('searchInput').addEventListener('input', handleSearch);
+        document.getElementById('sortSelect').addEventListener('change', handleSort);
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            isLoading = true;
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+            isLoading = false;
+        }
+
+        function handleSearch(e) {
+            searchTerm = e.target.value.toLowerCase();
+            showLoading();
+            displayImages(currentCategory).then(() => {
+                hideLoading();
+            });
+        }
+
+        function handleSort(e) {
+            currentSort = e.target.value;
+            showLoading();
+            displayImages(currentCategory).then(() => {
+                hideLoading();
+            });
+        }
+
+        async function fetchImageUpdates() {
+            try {
+                const response = await fetch(`${COMMITS_API_URL}?per_page=100`);
+                const commits = await response.json();
+
+                // Create a map of file paths to their last update time
+                const updateTimes = new Map();
+
+                for (const commit of commits) {
+                    const date = new Date(commit.commit.author.date);
+
+                    if (commit.files) {
+                        commit.files.forEach(file => {
+                            if (!updateTimes.has(file.filename)) {
+                                updateTimes.set(file.filename, date);
+                            }
+                        });
+                    }
+                }
+
+                return updateTimes;
+            } catch (error) {
+                console.error('Error fetching image updates:', error);
+                return new Map();
+            }
+        }
+
+        async function fetchImages() {
+            showLoading();
+            const imageGrid = document.getElementById('imageGrid');
+            imageGrid.innerHTML = ''; // Clear grid before loading
+
+            try {
+                const [treeResponse, updateTimes] = await Promise.all([
+                    fetch(GITHUB_API_URL),
+                    fetchImageUpdates()
+                ]);
+
+                const data = await treeResponse.json();
+
+                allImages = data.tree
+                    .filter(item => item.path.startsWith('images/') &&
+                        (item.path.endsWith('.png') || item.path.endsWith('.jpg') || item.path.endsWith('.jpeg')))
+                    .map(item => ({
+                        path: item.path,
+                        category: item.path.split('/')[1],
+                        url: RAW_CONTENT_URL + item.path,
+                        filename: item.path.split('/').pop(),
+                        selected: false,
+                        updateTime: updateTimes.get(item.path) || new Date(0),
+                        isNew: updateTimes.has(item.path) &&
+                            Date.now() - updateTimes.get(item.path).getTime() < NEW_TAG_DURATION
+                    }));
+
+                // Sort images by update time initially
+                allImages.sort((a, b) => b.updateTime - a.updateTime);
+
+                allImages.forEach(img => categories.add(img.category));
+                createCategoryButtons();
+                await displayImages('all');
+            } catch (error) {
+                console.error('Error fetching images:', error);
+                imageGrid.innerHTML = `
+                    <div class="col-span-full text-center py-8 text-red-600">
+                        <i class="fas fa-exclamation-circle text-3xl mb-4"></i>
+                        <p>Error loading images. Please try again later.</p>
+                    </div>
+                `;
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function sortImages(images) {
+            switch (currentSort) {
+                case 'newest':
+                    return [...images].sort((a, b) => b.updateTime - a.updateTime);
+                case 'oldest':
+                    return [...images].sort((a, b) => a.updateTime - b.updateTime);
+                case 'name':
+                    return [...images].sort((a, b) => a.filename.localeCompare(b.filename));
+                default:
+                    return images;
+            }
+        }
+
+        function createCategoryButtons() {
+            const categoriesDiv = document.getElementById('categories');
+            categoriesDiv.innerHTML = `
+                <button data-category="all" 
+                        class="category-btn bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors">
+                    <i class="fas fa-th-large mr-2"></i>All
+                </button>
+            `;
+
+            categories.forEach(category => {
+                const button = document.createElement('button');
+                button.className = 'category-btn bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors';
+                button.innerHTML = `<i class="fas fa-folder mr-2"></i>${category}`;
+                button.dataset.category = category;
+                button.addEventListener('click', async () => {
+                    if (isLoading) return;
+                    showLoading();
+                    currentCategory = category;
+                    document.querySelectorAll('.category-btn').forEach(btn => {
+                        btn.className = 'category-btn bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors';
+                    });
+                    button.className = 'category-btn bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors';
+                    await displayImages(category);
+                    hideLoading();
+                });
+                categoriesDiv.appendChild(button);
+            });
+        }
+
+        async function displayImages(category) {
+            const imageGrid = document.getElementById('imageGrid');
+            imageGrid.innerHTML = '';
+
+            let filteredImages = category === 'all'
+                ? allImages
+                : allImages.filter(img => img.category === category);
+
+            if (searchTerm) {
+                filteredImages = filteredImages.filter(img =>
+                    img.filename.toLowerCase().includes(searchTerm)
+                );
+            }
+
+            // Apply sorting
+            filteredImages = sortImages(filteredImages);
+
+            const resultsCounter = document.getElementById('resultsCounter');
+            resultsCounter.textContent = `Showing ${filteredImages.length} of ${allImages.length} images`;
+
+            if (filteredImages.length === 0) {
+                imageGrid.innerHTML = `
+                    <div class="col-span-full text-center py-8 text-gray-600">
+                        <i class="fas fa-search text-3xl mb-4"></i>
+                        <p>No images found matching your criteria</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Batch loading of images
+            const batchSize = 20;
+            for (let i = 0; i < filteredImages.length; i += batchSize) {
+                const batch = filteredImages.slice(i, i + batchSize);
+
+                batch.forEach(img => {
+                    const card = document.createElement('div');
+                    card.className = 'group relative bg-white rounded-lg shadow-md overflow-hidden transition-transform hover:scale-105';
+                    card.innerHTML = `
+                        <div class="relative pt-[100%]">
+                            ${img.isNew ? `
+                                <div class="absolute top-2 right-2 z-10 bg-red-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+                                    NEW
+                                </div>
+                            ` : ''}
+                            <img src="${img.url}" 
+                                 alt="${img.path}"
+                                 loading="lazy"
+                                 class="absolute inset-0 w-full h-full object-contain p-2">
+                            <div class="absolute top-2 left-2 z-10">
+                                <input type="checkbox" 
+                                       class="image-checkbox w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                       data-url="${img.url}"
+                                       ${selectedImages.has(img.url) ? 'checked' : ''}>
+                            </div>
+                            <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity"></div>
+                        </div>
+                        <div class="p-3 border-t border-gray-200">
+                            <p class="text-sm text-gray-600 truncate mb-2">${img.filename}</p>
+                            <p class="text-xs text-gray-500 mb-2">Updated: ${new Date(img.updateTime).toLocaleDateString()}</p>
+                            <button class="w-full bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors text-sm download-btn">
+                                <i class="fas fa-download mr-2"></i>Download
+                            </button>
+                        </div>
+                    `;
+
+                    // Add event listeners
+                    const checkbox = card.querySelector('.image-checkbox');
+                    checkbox.addEventListener('change', (e) => {
+                        if (e.target.checked) {
+                            selectedImages.add(img.url);
+                        } else {
+                            selectedImages.delete(img.url);
+                        }
+                        updateSelectedCount();
+                    });
+
+                    const downloadBtn = card.querySelector('.download-btn');
+                    downloadBtn.addEventListener('click', () => downloadImage(img.url, img.filename));
+
+                    imageGrid.appendChild(card);
+                });
+            }
+
+            updateSelectedCount();
+        }
+
+        function selectAllImages() {
+            const checkboxes = document.querySelectorAll('.image-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+                selectedImages.add(checkbox.dataset.url);
+            });
+            updateSelectedCount();
+        }
+
+        function deselectAllImages() {
+            const checkboxes = document.querySelectorAll('.image-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            selectedImages.clear();
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+        const count = selectedImages.size;
+        document.getElementById("selectedCount").textContent = count;
+        const downloadButton = document.getElementById("downloadSelected");
+        if (count > 0) {
+            downloadButton.classList.remove("hidden");
+        } else {
+            downloadButton.classList.add("hidden");
+        }
+    }
+
+        async function downloadImage(url, filename) {
+            try {
+                showLoading();
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const objectUrl = URL.createObjectURL(blob);
+
+                const link = document.createElement('a');
+                link.href = objectUrl;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(objectUrl);
+            } catch (error) {
+                console.error('Error downloading image:', error);
+                alert('Error downloading image. Please try again.');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function downloadSelectedImages() {
+            if (selectedImages.size === 0) return;
+
+            const zip = new JSZip();
+            const zipFilename = "selected_images.zip";
+            const imagePromises = Array.from(selectedImages).map((imageUrl) =>
+                fetch(imageUrl)
+                    .then((response) => {
+                        if (!response.ok) throw new Error("Failed to fetch image: " + imageUrl);
+                        return response.blob();
+                    })
+                    .then((blob) => {
+                        const filename = imageUrl.split("/").pop(); // Get the filename from the URL
+                        zip.file(filename, blob);
+                    })
+                    .catch((error) => console.error(error))
+            );
+
+            showLoading();
+            try {
+                await Promise.all(imagePromises);
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(zipBlob);
+                link.download = zipFilename;
+                link.click();
+                URL.revokeObjectURL(link.href);
+            } catch (error) {
+                console.error("Error creating ZIP:", error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+
+        fetchImages();
+    </script>
+</body>
+
+</html>
